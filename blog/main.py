@@ -1,22 +1,25 @@
 from typing import List
 from fastapi import FastAPI, Depends, status, Response, HTTPException
 from fastapi.params import Body
-from . import schemas,models
+from sqlalchemy.util.deprecations import deprecated
+from . import schemas, models
 from .database import SessionLocal, engine
 from sqlalchemy.orm import Session
+from .hashing import Hash
 
 
-app=FastAPI()
+app = FastAPI()
 
 models.Base.metadata.create_all(bind=engine)
 
 
-def get_db(): 
+def get_db():
     db = SessionLocal()
-    try: 
+    try:
         yield db
     finally:
         db.close()
+
 
 @app.post('/blog', status_code=status.HTTP_201_CREATED)
 def create(request: schemas.Blog, db: Session = Depends(get_db)):
@@ -34,20 +37,23 @@ def getAll(db: Session = Depends(get_db)):
 
 
 @app.get('/blog/{id}', status_code=status.HTTP_200_OK, response_model=schemas.ShowBlog)
-def getById(id: int, response: Response, db: Session=Depends(get_db)):
+def getById(id: int, response: Response, db: Session = Depends(get_db)):
     blog = db.query(models.Blog).filter(models.Blog.id == id).first()
     if not blog:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={'detail': f"Blog with the id {id} is not available"} )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={
+                            'detail': f"Blog with the id {id} is not available"})
     return blog
 
+
 @app.delete('/blog/{id}', status_code=status.HTTP_200_OK)
-def delete(id: int, db: Session=Depends(get_db)):
-    blog=db.query(models.Blog).filter(models.Blog.id == id)
+def delete(id: int, db: Session = Depends(get_db)):
+    blog = db.query(models.Blog).filter(models.Blog.id == id)
     if not blog.first():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="blog entry not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="blog entry not found")
     blog.delete(synchronize_session=False)
-    #blog = db.query(models.Blog).filter(models.Blog.id == id).first()
-    #db.delete(blog)
+    # blog = db.query(models.Blog).filter(models.Blog.id == id).first()
+    # db.delete(blog)
     db.commit()
     return 'deleted'
 
@@ -56,7 +62,8 @@ def delete(id: int, db: Session=Depends(get_db)):
 def update(id: int, request: schemas.Blog, db: Session = Depends(get_db)):
     blog = db.query(models.Blog).filter(models.Blog.id == id)
     if not blog.first():
-        raise HTTPException(status_code=status.HTTP_204_NO_CONTENT, detail="not found")
+        raise HTTPException(
+            status_code=status.HTTP_204_NO_CONTENT, detail="not found")
     else:
         blog.update({'title': request.title, 'body': request.body})
         db.commit()
@@ -64,5 +71,15 @@ def update(id: int, request: schemas.Blog, db: Session = Depends(get_db)):
 
 
 @app.get('/')
-def getRoot(): 
+def getRoot():
     return "use sub-URI"
+
+
+
+@app.post('/user', status_code=status.HTTP_201_CREATED, response_model=schemas.ShowUser)
+def createUser(request: schemas.User, db: Session = Depends(get_db)):
+    newUser = models.User(name=request.name, email=request.email, password=Hash.bcrypt(request.password))
+    db.add(newUser)
+    db.commit()
+    db.refresh(newUser)
+    return newUser
